@@ -1,0 +1,102 @@
+version: "3"
+
+services:
+  app:
+    image: markoshust/magento-nginx:1.18-8
+    restart: unless-stopped
+    ports:
+      - "80:8000"
+      - "443:8443"
+    volumes: &appvolumes
+      - ~/.composer:/var/www/.composer:cached
+      - ~/.ssh/id_rsa:/var/www/.ssh/id_rsa:cached
+      - ~/.ssh/known_hosts:/var/www/.ssh/known_hosts:cached
+      - appdata:/var/www/html
+      - sockdata:/sock
+      - ssldata:/etc/nginx/certs
+    #extra_hosts: &appextrahosts
+      ## Selenium support, replace "magento.test" with URL of your site
+      #- "magento.test:172.17.0.1"
+
+  phpfpm:
+    image: markoshust/magento-php:8.1-fpm-1
+    restart: unless-stopped
+    volumes: *appvolumes
+    env_file: compose/env/phpfpm.env
+    #extra_hosts: *appextrahosts
+
+  db:
+    image: mariadb:10.4.11
+    restart: unless-stopped
+    command:
+      --max_allowed_packet=64M
+      --optimizer_use_condition_selectivity=1
+      --optimizer_switch="rowid_filter=off"
+    ports:
+      - "3306:3306"
+    env_file: compose/env/db.env
+    volumes:
+      - dbdata:/var/lib/mysql
+
+  redis:
+    image: redis:6.0
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  elasticsearch:
+    image: elasticsearch:7.9.3
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - "discovery.type=single-node"
+      ## Set custom heap size to avoid memory errors
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      ## Avoid test failures due to small disks
+      ## More info at https://github.com/markshust/docker-magento/issues/488
+      - "cluster.routing.allocation.disk.threshold_enabled=false"
+      - "index.blocks.read_only_allow_delete"
+    healthcheck:
+      test: curl "localhost:9200/_cluster/health?wait_for_status=yellow&timeout=50s" || exit 1
+      interval: 10s
+      timeout: 50s
+      start_period: 5s
+
+  rabbitmq:
+    image: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    env_file: compose/env/rabbitmq.env
+
+  mailcatcher:
+    image:  mailhog/mailhog
+    restart: unless-stopped
+    ports:
+      - "1080:1080"
+
+  ## Blackfire support, uncomment to enable
+  #blackfire:
+  #  image: blackfire/blackfire:2
+  #  ports:
+  #    - "8307"
+  #  env_file: compose/env/blackfire.env
+
+  ## Selenium support, uncomment to enable
+  #selenium:
+  #  image: selenium/standalone-chrome-debug:3.8.1
+  #  ports:
+  #    - "5900:5900"
+  #  extra_hosts: *appextrahosts
+
+volumes:
+  appdata:
+  dbdata:
+  rabbitmqdata:
+  sockdata:
+  ssldata:

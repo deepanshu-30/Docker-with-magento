@@ -1,0 +1,14 @@
+#!/bin/bash
+
+pushd $(dirname $0)
+PROJECT_ROOT=$(cd ../.. && pwd)
+popd
+
+. $PROJECT_ROOT/compose/env/db.env
+
+docker-compose -f $PROJECT_ROOT/docker-compose.yml exec db mysql \
+    -u $MYSQL_USER \
+    -p$MYSQL_PASSWORD \
+    -h db \
+    $MYSQL_DATABASE \
+    "$@"

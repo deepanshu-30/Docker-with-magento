@@ -1,0 +1,74 @@
+#!/bin/bash
+set -e
+
+cd "$(dirname "$0")"
+BIN_DIR=$(pwd)
+COMPOSE_DIR=${BIN_DIR}/../..
+CICD_DIR=${BIN_DIR}/../../cicd
+cd "${COMPOSE_DIR}/"
+
+. "$CICD_DIR/vars.sh"
+
+export COMPOSE_HTTP_TIMEOUT=900
+
+if ! (ls compose/files/db/*.sql >/dev/null 2>&1 || ls compose/files/db/*.gz >/dev/null 2>&1); then
+  "${CICD_DIR}/get-db.sh"
+fi
+
+# If the app container is spun up before we create app/etc/env.php, docker will create a directory in its place.
+if [ -d app/etc/env.php ]; then
+  rmdir app/etc/env.php;
+fi
+
+COMPOSE_DEV="yes"
+COMPOSE_CRON="no"
+INTIALIZE_LOCAL="no"
+
+
+COMPOSE_ARGS="-f docker-compose.yml"
+for arg in "$@"
+do
+  case $arg in
+    -h|--help)
+      echo "Supported arguments:"
+      echo "  --disable-dev      No dev stack"
+      echo "  --enable-cron      Enable php cronjob container"
+      echo "  --init             Initialize local development environment"
+      exit
+      ;;
+    --disable-dev)
+      COMPOSE_DEV="no"
+      ;;
+    --enable-cron)
+      COMPOSE_CRON="yes"
+      ;;
+    --init)
+      INITIALIZE_LOCAL="yes"
+      ;;
+    esac
+done
+
+if [ ! -f ./app/etc/env.php ]; then
+  echo "Missing app/etc/env.php."
+  echo "Creating app/etc/env.php."
+  CRYPT_KEY=$(az keyvault secret show --name "$IMAGE_NAME" --vault-name "SDEnvironments" --query 'value' | sed -e 's/".*key\\":\\"\(.*\)\\".*/\1/')
+  sed -e "
+    s/crypt_key/$CRYPT_KEY/g;
+    s/base_domain/$BASE_DOMAIN/g;
+    " ./compose/env/env.php-local.template > ./app/etc/env.php
+fi
+
+
+if [[ ${INITIALIZE_LOCAL} = "yes" ]]; then
+  "${BIN_DIR}/init-local" ${COMPOSE_ARGS}
+fi
+
+if [[ ${COMPOSE_DEV} = "yes" ]]; then
+  COMPOSE_ARGS="${COMPOSE_ARGS} -f docker-compose-dev.yml"
+fi
+
+if [[ ${COMPOSE_CRON} = "yes" ]]; then
+  COMPOSE_ARGS="${COMPOSE_ARGS} -f docker-compose-cron.yml"
+fi
+
+docker-compose ${COMPOSE_ARGS} up -d

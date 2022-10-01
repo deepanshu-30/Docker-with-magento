@@ -1,0 +1,25 @@
+#!/bin/bash
+
+set -e
+
+pushd $(dirname $0)
+PROJECT_ROOT=$(cd ../.. && pwd)
+popd
+
+. $PROJECT_ROOT/compose/env/db.env
+CICD_DIR="$PROJECT_ROOT/cicd/"
+. $PROJECT_ROOT/cicd/vars.sh
+
+DATABASE_BACKUP="$1"
+
+if [[ -z "$1" ]]; then
+    DATABASE_BACKUP="compose/files/db/$(basename "$INIT_DB_PATH")"
+    echo "No database backup path provided. Using $DATABASE_BACKUP"
+fi
+
+$PROJECT_ROOT/compose/bin/mysql -e "DROP DATABASE $MYSQL_DATABASE; CREATE DATABASE $MYSQL_DATABASE"
+
+zcat < $DATABASE_BACKUP | docker-compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db mysql \
+    -u root \
+    -p$MYSQL_ROOT_PASSWORD \
+    $MYSQL_DATABASE
